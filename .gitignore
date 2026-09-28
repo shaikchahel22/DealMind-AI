@@ -1,0 +1,58 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+backend/dealmind.db
+backend/test_dealmind.db
+*.db
+backend/.env
+
+# Node
+node_modules/
+dist/
+build/
+coverage/
+frontend/.env
+frontend/.env.local
+tsconfig.tsbuildinfo
+
+# Logs & temp
+*.log
+scratch/
+.DS_Store
+.vscode/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary
+scratch/
