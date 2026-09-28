@@ -2,22 +2,22 @@ services:
   backend:
     build:
       context: ./backend
-    env_file:
-      - ./backend/.env
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: sqlite:////app/data/dealmind.db
       CORS_ORIGINS: http://localhost:5173
+      MEMORY_MODE: local
+      LLM_MODE: deterministic
+      AUTO_SEED: "true"
     volumes:
       - dealmind-db:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health')"]
+      test: ["CMD","python","-c","from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
-
   frontend:
     build:
       context: ./frontend
@@ -28,7 +28,5 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-
 volumes:
   dealmind-db:
-

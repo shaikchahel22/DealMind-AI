@@ -12,18 +12,17 @@ import MemoryCard from "../components/MemoryCard";
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [integrations, setIntegrations] = useState<Awaited<ReturnType<typeof api.integrationsStatus>> | null>(null);
 
   useEffect(() => {
     api.dashboard().then(setStats).catch((e) => setError(String(e)));
+    api.integrationsStatus().then(setIntegrations).catch(() => setIntegrations(null));
   }, []);
 
   if (error) return <ApiError error={error} />;
   if (!stats) return <DashboardSkeleton />;
 
   const successfulNeg = stats.recent_negotiations.filter((n) => n.outcome === "successful");
-  const successRate = stats.negotiation_count > 0
-    ? Math.round((successfulNeg.length / Math.min(stats.recent_negotiations.length, stats.negotiation_count)) * 100)
-    : 0;
 
   return (
     <div className="min-h-full bg-base-bg">
@@ -70,6 +69,22 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {integrations && (
+        <div className="mx-8 mb-6 rounded-xl border border-base-border bg-base-surface px-5 py-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">System Intelligence Status</div>
+            <span className={"text-[10px] font-bold uppercase " + (integrations.overall === "ok" ? "text-accent" : "text-warn")}>
+              {integrations.overall === "ok" ? "Healthy" : "Check configuration"}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+            <StatusPill label="Memory" value={integrations.hindsight.mode === "hindsight-cloud" && integrations.hindsight.active ? "Hindsight Cloud" : "Local SQLite"} />
+            <StatusPill label="Language" value={integrations.llm.active ? "Groq · " + integrations.llm.model : "Deterministic rules/templates"} />
+            <StatusPill label="Database" value={integrations.database.status === "connected" ? "SQLite connected" : "Database error"} />
+          </div>
+        </div>
+      )}
+
       {/* ── Intelligence Metrics ── */}
       <div className="grid grid-cols-2 gap-3 px-8 py-6 md:grid-cols-4">
         <IntelligenceMetric
@@ -96,9 +111,9 @@ export default function Dashboard() {
         <IntelligenceMetric
           icon={<CheckCircle2 size={15} />}
           label="Outcomes Stored"
-          value={successfulNeg.length}
+          value={stats.successful_negotiation_count}
           tone="accent"
-          sub="successful deals"
+          sub={stats.success_rate + "% success rate"}
         />
       </div>
 
@@ -370,6 +385,15 @@ function DemoModeCard() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function StatusPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-base-border bg-base-surface2 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-600">{label}</div>
+      <div className="mt-0.5 font-semibold text-slate-300">{value}</div>
     </div>
   );
 }

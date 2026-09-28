@@ -88,6 +88,9 @@ export interface DashboardStats {
   active_negotiations: number;
   vendor_count: number;
   negotiation_count: number;
+  successful_negotiation_count: number;
+  success_rate: number;
+  total_savings: number;
   memory_insight_count: number;
   recent_negotiations: Negotiation[];
   recent_learnings: MemoryRecordOut[];

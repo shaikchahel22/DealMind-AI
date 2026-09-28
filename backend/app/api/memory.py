@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.vendor import Vendor
 from app.models.memory import MemoryRecord
-from app.hindsight.client import get_hindsight, is_remote
+from app.hindsight.client import get_hindsight, is_remote, memory_mode
 from app.schemas import MemoryOut
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
@@ -42,12 +42,13 @@ def memory_status(db: Session = Depends(get_db)):
     if is_remote():
         cloud_count = hindsight.total_count()
         return {
-            "backend": "hindsight-cloud",
+            "backend": memory_mode(),
             "total_records": cloud_count,
-            "note": "Memories available in Hindsight Cloud"
+            "note": "Connected to Hindsight Cloud."
         }
     total = hindsight.total_count()
     return {
-        "backend": "local-hindsight-compatible-store",
+        "backend": memory_mode(),
         "total_records": total,
+        "note": "Using the built-in SQLite memory store. This is not Hindsight Cloud.",
     }

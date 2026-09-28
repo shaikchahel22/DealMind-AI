@@ -1,121 +1,61 @@
-"""Single entry point DEALMIND's agents use to talk to Hindsight.
-
-Two modes, same interface:
-  - HINDSIGHT_API_KEY unset  -> LocalHindsightStore (SQLite-backed, offline)
-  - HINDSIGHT_API_KEY set    -> RemoteHindsightClient (Hindsight Cloud REST)
-
-Swapping .env is the only change needed to move from local dev to a real
-Hindsight Cloud project -- nothing in app/agents/ or app/api/ needs to know
-which mode is active.
-"""
-import os
-import json
+"""Single memory adapter with explicit local vs Hindsight Cloud modes."""
+import asyncio,os
 from importlib.util import find_spec
-from typing import Optional
 from dotenv import load_dotenv
-
-load_dotenv()
-
-import httpx
 from sqlalchemy.orm import Session
-
 from app.hindsight.local_store import LocalHindsightStore
-
-HINDSIGHT_API_KEY = os.getenv("HINDSIGHT_API_KEY", "").strip()
-HINDSIGHT_BASE_URL = os.getenv("HINDSIGHT_BASE_URL", "https://api.hindsight.vectorize.io").strip()
-HINDSIGHT_COLLECTION = os.getenv("HINDSIGHT_COLLECTION", "dealmind-negotiations").strip()
-REMOTE_CLIENT_AVAILABLE = find_spec("hindsight_client") is not None
-
-if HINDSIGHT_API_KEY and not REMOTE_CLIENT_AVAILABLE:
-    print("[hindsight] SDK is unavailable; using the local memory store.")
-
-
+load_dotenv()
+MEMORY_MODE=os.getenv("MEMORY_MODE","local").strip().lower()
+HINDSIGHT_API_KEY=os.getenv("HINDSIGHT_API_KEY","").strip()
+HINDSIGHT_BASE_URL=os.getenv("HINDSIGHT_BASE_URL","https://api.hindsight.vectorize.io").strip()
+HINDSIGHT_BANK_ID=os.getenv("HINDSIGHT_BANK_ID",os.getenv("HINDSIGHT_COLLECTION","dealmind-negotiations")).strip()
+REMOTE_CLIENT_AVAILABLE=find_spec("hindsight_client") is not None
+class HindsightConfigurationError(RuntimeError): pass
+def is_remote(): return MEMORY_MODE=="hindsight"
+def memory_mode(): return "hindsight-cloud" if is_remote() else "local-hindsight-compatible-store"
+def memory_status():
+    configured=bool(HINDSIGHT_API_KEY); sdk_available=REMOTE_CLIENT_AVAILABLE; active=is_remote(); error=None
+    if MEMORY_MODE not in {"local","hindsight"}: error="MEMORY_MODE must be 'local' or 'hindsight'."
+    elif active and not configured: error="MEMORY_MODE=hindsight requires HINDSIGHT_API_KEY."
+    elif active and not sdk_available: error="MEMORY_MODE=hindsight requires the hindsight-client package."
+    return {"mode":memory_mode() if error is None else "invalid","configured":configured,"sdk_available":sdk_available,"active":active and error is None,"bank_id":HINDSIGHT_BANK_ID,"base_url":HINDSIGHT_BASE_URL,"error":error}
 class RemoteHindsightClient:
-    """Thin REST adapter for Hindsight Cloud.
-
-    Endpoint shape follows Hindsight's documented `/v1/collections/{c}/memories`
-    write + search pattern. If your Hindsight project uses a different route,
-    this is the only file that needs to change.
-    """
-
     def __init__(self):
+        if not HINDSIGHT_API_KEY: raise HindsightConfigurationError("HINDSIGHT_API_KEY is required when MEMORY_MODE=hindsight.")
+        if not REMOTE_CLIENT_AVAILABLE: raise HindsightConfigurationError("hindsight-client is not installed. Run pip install -r requirements.txt.")
         from hindsight_client import Hindsight
-        self._client = Hindsight(api_key=HINDSIGHT_API_KEY, base_url=HINDSIGHT_BASE_URL)
-
-    def remember(self, content, kind, vendor_id=None, negotiation_id=None, data=None, confidence=0.75):
-        tags = [kind]
-        if vendor_id:
-            tags.append(f"vendor_{vendor_id}")
-            
-        metadata = {
-            "kind": str(kind),
-            "vendor_id": str(vendor_id) if vendor_id is not None else "",
-            "negotiation_id": str(negotiation_id) if negotiation_id is not None else "",
-            "confidence": str(confidence),
-        }
-        if data:
-            for k, v in data.items():
-                metadata[k] = str(v)
+        self._client=Hindsight(api_key=HINDSIGHT_API_KEY,base_url=HINDSIGHT_BASE_URL)
+    def remember(self,content,kind,vendor_id=None,negotiation_id=None,data=None,confidence=.75):
+        tags=[kind]+([f"vendor_{vendor_id}"] if vendor_id is not None else [])
+        metadata={"kind":str(kind),"vendor_id":str(vendor_id) if vendor_id is not None else "","negotiation_id":str(negotiation_id) if negotiation_id is not None else "","confidence":str(confidence),"created_at":__import__("datetime").datetime.utcnow().isoformat()}
+        if data: metadata.update({k:str(v) for k,v in data.items()})
+        try: return self._client.retain(bank_id=HINDSIGHT_BANK_ID,content=content,tags=tags,metadata=metadata,document_id=f"negotiation-{negotiation_id}-{kind}" if negotiation_id is not None else None)
+        except Exception as exc: raise RuntimeError(f"Hindsight retain failed: {exc}") from exc
+    def recall(self,query="",vendor_id=None,kind=None,limit=10):
+        tags=([kind] if kind else [])+([f"vendor_{vendor_id}"] if vendor_id is not None else [])
         try:
-            self._client.retain(
-                bank_id=HINDSIGHT_COLLECTION,
-                content=content,
-                tags=tags,
-                metadata=metadata,
-            )
-            return True
-        except Exception as exc:
-            print(f"[hindsight] remote remember() failed: {exc}")
-            return None
-
-    def recall(self, query="", vendor_id=None, kind=None, limit=10):
-        tags = []
-        if kind:
-            tags.append(kind)
-        if vendor_id:
-            tags.append(f"vendor_{vendor_id}")
-
-        search_query = query.strip() if (query and query.strip()) else "negotiation history experience"
-
-        try:
-            resp = self._client.recall(
-                bank_id=HINDSIGHT_COLLECTION,
-                query=search_query,
-                tags=tags if tags else None,
-                tags_match="any" if tags else "any",
-            )
-            results = []
+            resp=self._client.recall(bank_id=HINDSIGHT_BANK_ID,query=query.strip() or "negotiation history experience",tags=tags or None,tags_match="all_strict" if tags else "any")
+            out=[]
             for r in resp.results:
-                text_content = getattr(r, "text", None) or getattr(r, "content", "") or ""
-                results.append({
-                    "id": getattr(r, "id", None) or str(hash(text_content)),
-                    "content": text_content,
-                    "metadata": getattr(r, "metadata", {}) or {},
-                })
-            return results[:limit]
-        except Exception as exc:
-            print(f"[hindsight] remote recall() failed: {exc}")
-            return []
-
-    def total_count(self) -> int:
+                txt=getattr(r,"text",None) or getattr(r,"content","") or ""
+                out.append({"id":getattr(r,"id",None) or str(hash(txt)),"content":txt,"metadata":getattr(r,"metadata",{}) or {}})
+            return out[:limit]
+        except Exception as exc: raise RuntimeError(f"Hindsight recall failed: {exc}") from exc
+    def total_count(self):
         try:
-            mems = self._client.list_memories(bank_id=HINDSIGHT_COLLECTION)
-            return getattr(mems, "total", len(getattr(mems, "items", [])))
+            mems=self._client.list_memories(bank_id=HINDSIGHT_BANK_ID)
+            return int(getattr(mems,"total",len(getattr(mems,"items",[]))))
+        except Exception as exc: raise RuntimeError(f"Hindsight count failed: {exc}") from exc
+    def check_connection(self):
+        try: return {"status":"connected","total_records":self.total_count(),"error":None}
+        except Exception as exc: return {"status":"error","total_records":None,"error":str(exc)}
+    def delete_negotiation_memory(self,negotiation_id):
+        try: [asyncio.run(self._client.documents.delete_document(HINDSIGHT_BANK_ID,f"negotiation-{negotiation_id}-{kind}")) for kind in ("negotiation_experience","payment_pattern","outcome","tactic","vendor_knowledge")]
         except Exception as exc:
-            print(f"[hindsight] remote total_count() failed: {exc}")
-            try:
-                results = self.recall(query="negotiation history experience tactic outcome", limit=100)
-                return len(results)
-            except Exception:
-                return 0
-
-
-def get_hindsight(db: Session):
-    """Return the active Hindsight-compatible client for this request."""
+            if "404" not in str(exc): raise RuntimeError(f"Hindsight demo reset failed: {exc}") from exc
+def get_hindsight(db:Session):
     if is_remote():
+        status=memory_status()
+        if status["error"]: raise HindsightConfigurationError(status["error"])
         return RemoteHindsightClient()
     return LocalHindsightStore(db)
-
-
-def is_remote() -> bool:
-    return bool(HINDSIGHT_API_KEY) and REMOTE_CLIENT_AVAILABLE
