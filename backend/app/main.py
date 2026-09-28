@@ -8,9 +8,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
 from app import models  # noqa: F401 -- registers models on Base before create_all
-from app.api import vendors, negotiations, memory, dashboard, demo
+from app.api import vendors, negotiations, memory, dashboard, demo, integrations
 
 Base.metadata.create_all(bind=engine)
+
+if os.getenv("AUTO_SEED","true").strip().lower()=="true":
+    from app.models.vendor import Vendor
+    from seed.seed_data import run as seed_run
+    from app.database import SessionLocal
+    with SessionLocal() as _seed_db:
+        if _seed_db.query(Vendor).count()==0:
+            seed_run()
 
 app = FastAPI(
     title="DEALMIND API",
@@ -45,6 +53,7 @@ app.include_router(negotiations.router)
 app.include_router(memory.router)
 app.include_router(dashboard.router)
 app.include_router(demo.router)
+app.include_router(integrations.router)
 
 
 @app.get("/api/health")

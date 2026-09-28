@@ -33,9 +33,8 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env            # optional: add GROQ_API_KEY / HINDSIGHT_API_KEY
+cp .env.example .env            # optional; local mode works without secrets
 
-python -m seed.seed_data        # seeds 10 vendors + 70 historical negotiations
 uvicorn app.main:app --reload   # http://localhost:8000
 ```
 
@@ -55,6 +54,16 @@ npm run dev                     # http://localhost:5173
 ```bash
 docker compose up --build
 ```
+
+## Explicit execution modes
+
+- MEMORY_MODE=local uses the built-in SQLite memory store.
+- MEMORY_MODE=hindsight requires HINDSIGHT_API_KEY and the hindsight-client SDK and uses the configured Hindsight Cloud bank.
+- LLM_MODE=deterministic uses the rule-based strategy engine and deterministic templates.
+- LLM_MODE=groq enables Groq only for natural-language phrasing; decision-critical numbers remain deterministic.
+- GET /api/integrations/status reports the active memory, LLM and database modes.
+
+The dashboard also shows the active modes so a demo never implies that deterministic logic is an external LLM call.
 
 ## Zero-config by design
 
@@ -107,3 +116,7 @@ smarter every time.**
 ## License
 
 MIT — see `LICENSE`.
+
+## Fresh install and demo safety
+
+A completely empty database is seeded automatically once when AUTO_SEED=true; existing databases are never reseeded. Docker starts without a .env file. Demo reset is scoped to Apex Demo Corp, and Hindsight Cloud demo memories are stored as per-negotiation documents so reset does not delete unrelated memory.

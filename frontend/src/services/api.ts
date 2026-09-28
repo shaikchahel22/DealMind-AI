@@ -53,7 +53,13 @@ export const api = {
     if (params.limit) qs.set("limit", String(params.limit));
     return request<MemoryRecordOut[]>(`/api/memory?${qs.toString()}`);
   },
-  memoryStatus: () => request<{ backend: string; total_records: number }>("/api/memory/status"),
+  memoryStatus: () => request<{ backend: string; total_records: number; note?: string }>("/api/memory/status"),
+  integrationsStatus: () => request<{
+    overall: "ok" | "degraded";
+    database: { status: string; error: string | null };
+    hindsight: { mode: string; active: boolean; configured: boolean; sdk_available: boolean; status: string; error: string | null };
+    llm: { mode: string; active: boolean; configured: boolean; model: string | null; error: string | null };
+  }>("/api/integrations/status"),
 
   demoScenario: () =>
     request<{

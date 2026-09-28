@@ -119,6 +119,9 @@ class DashboardStats(BaseModel):
     active_negotiations: int
     vendor_count: int
     negotiation_count: int
+    successful_negotiation_count: int
+    success_rate: float
+    total_savings: float
     memory_insight_count: int
     recent_negotiations: list[NegotiationOut]
     recent_learnings: list[MemoryOut]

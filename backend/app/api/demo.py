@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models.vendor import Vendor
 from app.models.negotiation import Negotiation, NegotiationMessage
 from app.models.memory import MemoryRecord
+from app.hindsight.client import get_hindsight,is_remote
 
 router = APIRouter(prefix="/api/demo", tags=["demo"])
 
@@ -80,11 +81,12 @@ def reset_demo(db: Session = Depends(get_db)):
     """
     vendor = _get_or_create_demo_vendor(db)
 
-    # Delete memory records for demo vendor
-    db.query(MemoryRecord).filter(MemoryRecord.vendor_id == vendor.id).delete()
-
-    # Get negotiation IDs to delete associated messages
     neg_ids = [n.id for n in vendor.negotiations]
+    hindsight = get_hindsight(db)
+    if is_remote():
+        for neg_id in neg_ids:
+            hindsight.delete_negotiation_memory(neg_id)
+    db.query(MemoryRecord).filter(MemoryRecord.vendor_id == vendor.id).delete()
     if neg_ids:
         db.query(NegotiationMessage).filter(NegotiationMessage.negotiation_id.in_(neg_ids)).delete(synchronize_session=False)
         db.query(Negotiation).filter(Negotiation.vendor_id == vendor.id).delete(synchronize_session=False)
@@ -100,6 +102,8 @@ def reset_demo(db: Session = Depends(get_db)):
 
     return {
         "status": "reset",
+        "scope": "Apex Demo Corp only",
+        "memory_backend": "hindsight-cloud" if is_remote() else "local",
         "vendor_id": vendor.id,
         "vendor_name": DEMO_VENDOR_NAME,
         "vendor_negotiation_count": 0,
